@@ -169,7 +169,7 @@
         <div class="card">
           <h2>🤖 קריאת מסמכים עם AI</h2>
           <p class="muted" style="font-size:14px;margin-bottom:10px">אפשר להעלות PDF או צילום של תלושים, דוחות שנתיים, אישורי יתרה ודפי בנק, וה־AI ממלא את הנתונים. הקובץ נשלח לשרת מאובטח, מעובד ואינו נשמר. רק משתמשים מורשים יכולים להשתמש בזה.</p>
-          ${!AI.available() ? '<p class="note">רכיב ההתחברות לא נטען.</p>' : u ? `<p class="note g">מחובר/ת כ־${esc(u.email)}</p>` : '<button class="btn pri" data-act="signin">התחברות עם Google</button>'}
+          ${!AI.available() ? '<p class="note">שירות ה־AI אינו פעיל כרגע. אפשר להמשיך להזין נתונים ולייבא CSV, Excel וקובצי מסלקה מקומית.</p>' : u ? `<p class="note g">מחובר/ת כ־${esc(u.email)}</p>` : '<button class="btn pri" data-act="signin">התחברות עם Google</button>'}
         </div>
         <div class="card">
           <h2>💾 שמירה וטעינה</h2>

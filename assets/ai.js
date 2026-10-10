@@ -13,7 +13,7 @@
   const listeners = new Set();
 
   function sb() {
-    if (!client && root.supabase && cfg) {
+    if (!client && available()) {
       client = root.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' }
       });
@@ -84,9 +84,10 @@
     return data;
   }
 
+  const available = () => !!(root.supabase && cfg && cfg.aiEnabled !== false && cfg.supabaseUrl && cfg.supabaseKey);
   root.ArkAI = {
     init, signIn, signOut, user, call, takeStash,
     onChange: fn => listeners.add(fn),
-    available: () => !!(root.supabase && cfg)
+    available
   };
 })(window);
