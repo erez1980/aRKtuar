@@ -93,7 +93,8 @@
   function maritalFraction(startDate, marriageDate, crisisDate) {
     const s = toTime(startDate), m = toTime(marriageDate), c = toTime(crisisDate);
     if (!isFinite(c)) return 1;
-    if (!isFinite(s) || s >= c) return isFinite(m) && isFinite(s) && s < m ? 0 : 1;
+    if (!isFinite(s)) return 1;
+    if (s >= c) return 0;
     const from = isFinite(m) ? Math.max(s, m) : s;
     return clamp01((c - from) / (c - s));
   }
@@ -117,7 +118,7 @@
     if (it.excluded) { res.status = 'excluded'; res.note = it.excludedReason || 'הוחרג'; return res; }
 
     const v = num(it.value), d = num(it.debt), cost = num(it.cost), pre = num(it.preMarital);
-    const share = it.owner === 'J' ? 1 : clamp01(num(it.share || 100) / 100);
+    const share = it.owner === 'J' ? 1 : clamp01(num(it.share ?? 100) / 100);
     const taxPct = clamp01(num(it.taxPct) / 100);
 
     if (cat.kind === 'debt') {

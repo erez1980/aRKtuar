@@ -155,6 +155,7 @@
             </select></label>
         </div>
         ${S.meta.regime === 'agreement' ? '<p class="note" style="margin-top:10px">כשיש הסכם ממון, ההסכם גובר. סמנו כ״מוחרג״ כל נכס שההסכם מוציא מהאיזון.</p>' : ''}
+        ${S.meta.regime === 'sharing' ? '<p class="note" role="alert">הלכת השיתוף אינה מיושמת במנוע זה. הסכומים מוצגים כהמחשת איזון משאבים בלבד, ואינם קביעה של זכויות לפי הלכת השיתוף. נדרשת בדיקה משפטית פרטנית.</p>' : ''}
       </div>
       <div class="grid2">${sp('A')}${sp('B')}</div>
       <div class="card">
@@ -520,7 +521,12 @@
           rows = [];
           for (const sn of wb.SheetNames) rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '' }));
         }
-        const r = BK.rowsToTransactions(rows);
+        let r = BK.rowsToTransactions(rows);
+        if (r.error) {
+          const map = await columnMapping(rows, f.name);
+          if (!map) continue;
+          r = BK.rowsToTransactions(rows, map);
+        }
         if (!r.tx.length) { toast(`${f.name}: ${r.error || 'לא נמצאו תנועות'}`, true); continue; }
         mergeTx(w, r.tx);
         S.bank[w].files.push(f.name);
@@ -531,11 +537,49 @@
     render();
   }
   async function readText(f) {
-    const buf = await f.arrayBuffer();
-    let t = new TextDecoder('utf-8').decode(buf);
-    if (t.includes('�')) t = new TextDecoder('windows-1255').decode(buf); // legacy Hebrew bank exports
-    return t;
+    return BK.decodeText(await f.arrayBuffer());
   }
+
+  let mapping = null;
+  function columnMapping(rows, name) {
+    return new Promise(resolve => {
+      mapping = { rows, name, resolve, row: 0 };
+      renderMapping();
+      $('#dlg').showModal();
+    });
+  }
+  function renderMapping() {
+    const { rows, name, row } = mapping;
+    const width = Math.max(0, ...rows.slice(0, 40).map(r => r.length));
+    const options = '<option value="-1">לא נבחרה</option>' + Array.from({ length: width }, (_, i) => `<option value="${i}">${i + 1}: ${esc((rows[row] || [])[i] || '')}</option>`).join('');
+    $('#dlgBody').innerHTML = `<h3>מיפוי עמודות ידני</h3><p>${esc(name)}: לא זוהה מבנה הקובץ. בחרו את שורת הכותרות ועמודות הנתונים.</p>
+      <label class="f">מספר שורת כותרות (0 אם אין כותרות)<input id="mapRow" type="number" min="0" max="${rows.length}" value="${row + 1}"></label>
+      <div class="grid2">${[['date', 'תאריך'], ['desc', 'תיאור'], ['amount', 'סכום יחיד'], ['credit', 'זכות'], ['debit', 'חובה'], ['balance', 'יתרה']].map(([key, label]) => `<label class="f">${label}<select id="map-${key}">${options}</select></label>`).join('')}</div>
+      <label class="f">סימן עמודת סכום יחיד<select id="mapSign"><option value="1">חיובי = זכות, שלילי = חובה</option><option value="-1">חיובי = הוצאה (יצוא חברת אשראי)</option></select></label>
+      <div class="tbl-wrap"><table class="tbl"><tbody>${rows.slice(row, row + 4).map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <p id="mapError" class="note" role="alert" hidden></p><div class="row"><button class="btn pri" data-act="mapApply">יבוא לפי המיפוי</button><button class="btn ghost" data-act="mapCancel">ביטול</button></div>`;
+  }
+  function finishMapping(map) {
+    if (!mapping) return;
+    const resolve = mapping.resolve;
+    mapping = null;
+    $('#dlg').close();
+    resolve(map);
+  }
+  function applyMapping() {
+    if (!mapping) return;
+    const map = { row: +$('#mapRow').value - 1, extra: -1, amountSign: +$('#mapSign').value };
+    for (const key of ['date', 'desc', 'amount', 'credit', 'debit', 'balance']) map[key] = +$('#map-' + key).value;
+    const used = [map.date, map.desc, ...(map.amount >= 0 ? [map.amount] : [map.credit, map.debit]), map.balance].filter(v => v >= 0);
+    let error = '';
+    if (!Number.isInteger(map.row) || map.row < -1 || map.row >= mapping.rows.length) error = 'מספר שורת הכותרות לא תקין';
+    else if (map.date < 0 || map.desc < 0 || (map.amount < 0 && map.credit < 0 && map.debit < 0)) error = 'בחרו תאריך, תיאור וסכום או זכות/חובה';
+    else if (new Set(used).size !== used.length) error = 'יש לבחור עמודה שונה לכל תפקיד';
+    else if (!BK.rowsToTransactions(mapping.rows, map).tx.length) error = 'המיפוי לא הניב תנועות. בדקו תאריכים ועמודות סכום';
+    if (error) { $('#mapError').hidden = false; $('#mapError').textContent = error; return; }
+    finishMapping(map);
+  }
+  $('#dlg').addEventListener('cancel', () => finishMapping(null));
   function mergeTx(w, tx) {
     const seen = new Set(S.bank[w].tx.map(t => t.date + '|' + t.amount + '|' + t.desc));
     for (const t of tx) { const k = t.date + '|' + t.amount + '|' + t.desc; if (!seen.has(k)) { seen.add(k); S.bank[w].tx.push(t); } }
@@ -665,6 +709,11 @@
     const missing = ['A', 'B'].flatMap(w => checklist(w).filter(d => d.req && !S.docs[w + ':' + d.id]).map(d => ({ w, d })));
     const findings = ['A', 'B'].flatMap(w => (S.bank[w].findings || []).filter(f => f.status !== 'dismissed').map(f => ({ w, f })));
     const warn = [];
+    if (S.meta.regime === 'sharing') warn.push('הלכת השיתוף אינה מיושמת. דוח זה מדגים איזון משאבים בלבד ואינו קובע זכויות לפי הלכת השיתוף.');
+    for (const w of ['A', 'B']) {
+      const overlap = BK.overlappingIncome(S.bank[w].findings);
+      if (overlap.length) warn.push(`${nm(w)}: ממצא שסומן כנכס חבוי מבוסס על זיכויים הנכללים גם בפער ההכנסות (${overlap.map(f => f.title).join(', ')}). אין לחבר את פער ההכנסות ואת אותו מקור שוב כנכס. יש להבחין בין הכנסה שוטפת ליתרה שנותרה במועד הקרע; ייתכן כפל ספירה גם בין ממצאים חופפים.`);
+    }
     if (!S.meta.marriageDate || !S.meta.crisisDate) warn.push('לא הוזנו תאריך נישואין ומועד קרע. החלוקה היחסית של קופות ו־RSU לא מחושבת.');
     if (S.items.some(i => i.source === 'ai')) warn.push('חלק מהנתונים חולצו אוטומטית מ־AI. מומלץ לאמת מול המסמך המקורי.');
     if (missing.length) warn.push(`חסרים ${missing.length} מסמכי חובה (פירוט בנספח).`);
@@ -751,6 +800,7 @@
 
   document.addEventListener('change', e => {
     const el = e.target;
+    if (el.id === 'mapRow' && mapping) { mapping.row = Math.max(-1, Math.min(mapping.rows.length - 1, +el.value - 1)); renderMapping(); return; }
     if (el.dataset.bind) {
       setPath(el.dataset.bind, el.type === 'number' ? (el.value === '' ? 0 : +el.value) : el.value);
       if (/^incomes\.|^settings\./.test(el.dataset.bind)) { const w = ui.who.bank; if (S.bank[w].tx.length) runAnalysis(w); renderSoon(); return; }
@@ -801,7 +851,9 @@
       case 'edit': { const it = S.items.find(i => i.id === el.dataset.id); if (it) openItem(it, false); break; }
       case 'del': if (confirm('למחוק את הפריט?')) { S.items = S.items.filter(i => i.id !== el.dataset.id); render(); } break;
       case 'saveItem': saveItem(); break;
-      case 'closeDlg': $('#dlg').close(); editing = null; pending = null; break;
+      case 'closeDlg': finishMapping(null); $('#dlg').close(); editing = null; pending = null; break;
+      case 'mapApply': applyMapping(); break;
+      case 'mapCancel': finishMapping(null); break;
       case 'bizCalc': { const p = +$('#bizProfit').value || 0, m = +$('#bizMult').value || 0; const v = $('#itemForm [name=value]'); if (v) v.value = Math.round(p * m); break; }
       case 'bankUpload': bankUpload(w); break;
       case 'bankClear': if (confirm('למחוק את כל התנועות שנטענו?')) { S.bank[w] = { tx: [], findings: [], files: [] }; ui.bankResult[w] = null; syncHidden(w); render(); } break;

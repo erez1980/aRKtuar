@@ -1,0 +1,18 @@
+name: JavaScript checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax
+        run: for file in assets/*.js; do node --check "$file"; done
+      - name: Run financial and bank tests
+        run: node --test tests/*.test.js

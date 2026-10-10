@@ -41,8 +41,17 @@
   // ---------- CSV ----------
   function parseCSV(text) {
     text = String(text || '').replace(/^﻿/, '');
-    const first = text.split(/\r?\n/).find(l => l.trim()) || '';
-    const delim = [',', ';', '\t', '|'].sort((a, b) => first.split(b).length - first.split(a).length)[0];
+    // Ignore quoted delimiters and tolerate bank export preambles.
+    const lines = text.split(/\r?\n/).slice(0, 40);
+    const score = d => Math.max(0, ...lines.map(line => {
+      let quoted = false, count = 0;
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') { if (quoted && line[i + 1] === '"') i++; else quoted = !quoted; }
+        else if (!quoted && line[i] === d) count++;
+      }
+      return count;
+    }));
+    const delim = [',', ';', '\t', '|'].sort((a, b) => score(b) - score(a))[0];
     const rows = []; let row = [], cell = '', q = false;
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
@@ -58,10 +67,15 @@
     return rows;
   }
 
+  function decodeText(buffer) {
+    const utf = new TextDecoder('utf-8').decode(buffer);
+    return utf.includes('\uFFFD') ? new TextDecoder('windows-1255').decode(buffer) : utf;
+  }
+
   // ---------- Column detection ----------
   const H = {
     date: /^(תאריך(\s*(ה)?פעולה|\s*ערך)?|date|תאריך)$/i,
-    desc: /(תיאור|פרטים|הפעולה|סוג\s*פעולה|description|שם\s*בית\s*העסק|פירוט)/i,
+    desc: /(תיאור|פרטים|הפעולה|סוג\s*פעולה|description|שם\s*בית\s*(ה)?עסק|פירוט)/i,
     credit: /(זכות|בזכות|הכנסה|credit|זיכוי)/i,
     debit: /(חובה|בחובה|הוצאה|debit|חיוב)/i,
     amount: /(^סכום|amount|סכום\s*(ה)?פעולה|סכום\s*בש"ח)/i,
@@ -72,14 +86,16 @@
 
   function detectHeader(rows) {
     for (let r = 0; r < Math.min(rows.length, 40); r++) {
-      const cells = (rows[r] || []).map(c => String(c ?? '').trim());
+      const cells = (rows[r] || []).map(c => String(c ?? '').replace(/[\u200e\u200f\uFEFF]/g, '').trim());
       const find = re => cells.findIndex(c => c && re.test(c));
-      const date = cells.findIndex(c => /^תאריך|^date/i.test(c));
+      const date = cells.findIndex(c => /^(תאריך|יום\s*ביצוע|מועד\s*(ביצוע|עסקה)|date)/i.test(c));
       const desc = find(H.desc);
       const credit = find(H.credit), debit = find(H.debit), amount = find(H.amount);
-      if (date >= 0 && desc >= 0 && (amount >= 0 || (credit >= 0 && debit >= 0))) {
+      if (date >= 0 && desc >= 0 && (amount >= 0 || credit >= 0 || debit >= 0)) {
         const extra = cells.findIndex((c, i) => i !== desc && H.extra.test(c));
-        return { row: r, date, desc, credit, debit, amount: (credit >= 0 && debit >= 0) ? -1 : amount, balance: find(H.balance), extra };
+        const split = credit >= 0 && debit >= 0 && credit !== debit;
+        const card = /בית\s*(ה)?עסק/.test(cells[desc]);
+        return { row: r, date, desc, credit, debit, amount: split ? -1 : amount, amountSign: card ? -1 : 1, balance: find(H.balance), extra };
       }
     }
     return null;
@@ -93,7 +109,7 @@
       const c = rows[r] || [];
       const date = parseDate(c[map.date]);
       if (!date) continue;
-      let amount = map.amount >= 0 ? num(c[map.amount]) : num(c[map.credit]) - Math.abs(num(c[map.debit]));
+      let amount = map.amount >= 0 ? num(c[map.amount]) * (map.amountSign === -1 ? -1 : 1) : num(c[map.credit]) - Math.abs(num(c[map.debit]));
       if (!amount) continue;
       let desc = String(c[map.desc] ?? '').trim();
       if (map.extra >= 0 && c[map.extra]) desc += ' | ' + String(c[map.extra]).trim();
@@ -133,6 +149,8 @@
   // Normalize a description into a counterparty key
   function counterparty(desc) {
     return String(desc || '')
+      .replace(/[\u0591-\u05BD\u05BF-\u05C7\u200e\u200f]/g, '')
+      .toLowerCase()
       .replace(/\|.*$/, '')
       .replace(/\d{3,}/g, '')
       .replace(/[^֐-׿a-zA-Z\s'"]/g, ' ')
@@ -271,7 +289,14 @@
     };
   }
 
-  const api = { parseCSV, parseDate, detectHeader, rowsToTransactions, classify, counterparty, analyze, LABELS, num };
+  // Income-gap findings aggregate the same credits as source findings.
+  function overlappingIncome(findings) {
+    const active = (findings || []).filter(f => f.status !== 'dismissed');
+    if (!active.some(f => f.type === 'incomeGap')) return [];
+    return active.filter(f => f.asAsset && ['recurringIncome', 'wallet', 'cashIn', 'checks', 'incomeGap', 'vat'].includes(f.type));
+  }
+
+  const api = { parseCSV, decodeText, parseDate, detectHeader, rowsToTransactions, classify, counterparty, analyze, overlappingIncome, LABELS, num };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ArkBank = api;
 })(typeof window !== 'undefined' ? window : globalThis);
