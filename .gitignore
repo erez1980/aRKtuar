@@ -1,0 +1,11 @@
+# Never commit real case data
+*.json
+!package.json
+*.zip
+*.xls
+*.xlsx
+*.xml
+*.csv
+*.pdf
+.DS_Store
+supabase/.temp/

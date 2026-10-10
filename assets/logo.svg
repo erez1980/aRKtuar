@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Balance scale built from chart bars (same visual language as the RK cedar), with an AI spark on top -->
+  <path d="M32 1.5 33.6 5.4 37.5 7 33.6 8.6 32 12.5 30.4 8.6 26.5 7 30.4 5.4Z" fill="#C8F7DF"/>
+  <rect x="29" y="14" width="6" height="38" rx="3" fill="#18A866"/>
+  <rect x="6" y="17" width="52" height="5" rx="2.5" fill="#22C983"/>
+  <path d="M9 22 3 38h18L15 22" fill="none" stroke="#5BE0A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M49 22 43 38h18L55 22" fill="none" stroke="#5BE0A3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="2" y="37" width="20" height="5" rx="2.5" fill="#22C983"/>
+  <rect x="42" y="37" width="20" height="5" rx="2.5" fill="#22C983"/>
+  <rect x="18" y="52" width="28" height="7" rx="3.5" fill="#0A7D4D"/>
+</svg>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://nsufrchdgyomgbqmvdlr.supabase.co; worker-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0a7d4d">
+<title>aRKtuar AI · איזון משאבים בין בני זוג</title>
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="./">
+      <img src="assets/logo.svg" alt="">
+      <span><span class="wm">a<b>RK</b>tuar<i>AI</i></span><span class="tag">איזון משאבים בין בני זוג</span></span>
+    </a>
+    <span class="sp"></span>
+    <div class="auth" id="auth"></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="rail" id="rail"></nav>
+  <main id="main"></main>
+</div>
+
+<footer>
+  aRKtuar AI הוא כלי עזר להערכה ולהכנה, ואינו מחליף חוות דעת של אקטואר מוסמך, רואה חשבון או עורך דין.
+  הנתונים נשמרים בדפדפן בלבד. מסמכים שנשלחים לניתוח AI עוברים דרך שרת מאובטח ואינם נשמרים.
+  · <span id="ver"></span>
+</footer>
+
+<dialog id="dlg"><div id="dlgBody"></div></dialog>
+
+<dialog id="pwModal">
+  <form method="dialog">
+    <h3>קובץ מוגן בסיסמה</h3>
+    <p id="pwText" class="muted"></p>
+    <p id="pwError" style="color:var(--neg);font-size:13px;margin:6px 0"></p>
+    <input id="pwInput" type="password" autocomplete="off" style="margin:8px 0 14px">
+    <div class="row"><button class="btn pri" value="ok">פתיחה</button><button class="btn ghost" value="cancel">ביטול</button></div>
+  </form>
+</dialog>
+
+<input type="file" id="fileAny" hidden multiple>
+
+<script src="assets/config.js"></script>
+<script src="assets/vendor/supabase.umd.js"></script>
+<script src="assets/vendor/xlsx.full.min.js"></script>
+<script src="assets/vendor/zip-full.min.js"></script>
+<script src="assets/mislaka-parsers.js"></script>
+<script src="assets/engine.js"></script>
+<script src="assets/bank.js"></script>
+<script src="assets/ai.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
