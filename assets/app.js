@@ -6,6 +6,7 @@
   'use strict';
   const E = window.ArkEngine, BK = window.ArkBank, AI = window.ArkAI, M = window.Mislaka;
   const CFG = window.ARK_CONFIG || {};
+  const CS = window.ArkSupport;
   const DRAFT_KEY = 'ark-draft-v1', DRAFT_FLAG = 'ark-draft-on';
 
   // ---------- Utils ----------
@@ -42,12 +43,16 @@
     S = Object.assign(base, obj);
     S.meta = Object.assign(base.meta, obj.meta || {});
     S.settings = Object.assign(E.newState().settings, obj.settings || {});
+    S.support = Object.assign(CS.defaults(), obj.support || {});
+    S.support.selfExpenses = Object.assign({ A: 0, B: 0 }, (obj.support || {}).selfExpenses || {});
+    S.support.realOverride = Object.assign({ A: '', B: '' }, (obj.support || {}).realOverride || {});
     for (const w of ['A', 'B']) {
       S.spouses[w] = Object.assign(E.newState().spouses[w], (obj.spouses || {})[w] || {});
       S.incomes[w] = Object.assign(E.newState().incomes[w], (obj.incomes || {})[w] || {});
       S.bank[w] = Object.assign(E.newState().bank[w], (obj.bank || {})[w] || {});
     }
     S.items = (obj.items || []).map(i => E.newItem(i));
+    S.kids = (obj.kids || []).map(k => Object.assign({}, k, { support: Object.assign({}, k.support || {}) }));
   }
   function exportJson() {
     const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
@@ -74,6 +79,7 @@
     ['pension', 'פנסיה ומסלקה'],
     ['assets', 'נכסים וחובות'],
     ['bank', 'הכנסות ודפי בנק'],
+    ['support', 'ילדים ומזונות'],
     ['report', 'הדוח']
   ];
 
@@ -90,7 +96,7 @@
   function renderSoon() { if (renderQueued) return; renderQueued = true; setTimeout(() => { renderQueued = false; render(); }, 0); }
   function render() {
     renderRail();
-    const fn = { setup: renderSetup, docs: renderDocs, pension: renderPension, assets: renderAssets, bank: renderBank, report: renderReport }[ui.step];
+    const fn = { setup: renderSetup, docs: renderDocs, pension: renderPension, assets: renderAssets, bank: renderBank, support: renderSupport, report: renderReport }[ui.step];
     $('#main').innerHTML = `<section class="screen">${fn()}</section>`;
     const on = $('.step.on'); if (on && on.scrollIntoView && window.innerWidth < 900) on.scrollIntoView({ block: 'nearest', inline: 'center' });
     renderAuth();
@@ -101,6 +107,7 @@
     if (k === 'pension') return S.items.some(i => E.PENSION_CATS.includes(i.cat) || i.cat === 'hishtalmut');
     if (k === 'assets') return S.items.some(i => !E.PENSION_CATS.includes(i.cat) && i.cat !== 'hidden');
     if (k === 'bank') return !!(S.bank.A.tx.length || S.bank.B.tx.length);
+    if (k === 'support') return S.kids.length > 0 && CS.compute(S, 'real', today()).complete;
     if (k === 'docs') return Object.keys(S.docs).length > 4;
     return false;
   }
@@ -159,7 +166,7 @@
       </div>
       <div class="grid2">${sp('A')}${sp('B')}</div>
       <div class="card">
-        <h2>👧 ילדים <span class="pill">ישמש לחישוב מזונות בשלב הבא</span></h2>
+        <h2>👧 ילדים <span class="pill">ישמש להערכת מזונות</span></h2>
         ${S.kids.length ? `<table class="tbl"><thead><tr><th>שם</th><th>תאריך לידה</th><th>מתגורר/ת בעיקר אצל</th><th></th></tr></thead><tbody>
           ${S.kids.map((k, i) => `<tr><td><input type="text" data-kid="${i}.name" value="${esc(k.name)}"></td><td><input type="date" data-kid="${i}.birth" value="${esc(k.birth)}"></td>
           <td><select data-kid="${i}.lives"><option value="A" ${k.lives === 'A' ? 'selected' : ''}>${esc(nm('A'))}</option><option value="B" ${k.lives === 'B' ? 'selected' : ''}>${esc(nm('B'))}</option><option value="shared" ${k.lives === 'shared' ? 'selected' : ''}>משמורת משותפת</option></select></td>
@@ -495,7 +502,7 @@
             <span style="flex:1"></span>
             <button class="link" data-act="fdToggle" data-id="${f.id}">${f.status === 'dismissed' ? 'שחזור' : 'הוסבר / לא רלוונטי'}</button>
           </div></div>`).join('')}</div>` : (b.tx.length && res ? '<div class="card"><p class="note g">לא נמצאו ממצאים חריגים.</p></div>' : '')}
-      ${nav('assets', 'report')}`;
+      ${nav('assets', 'support')}`;
   }
   function aiOpinionHtml(w) {
     const o = ui.aiOpinion[w];
@@ -507,6 +514,34 @@
       ${(o.assessments || []).filter(a => a.suspicion >= 0.3).sort((a, b) => b.suspicion - a.suspicion).slice(0, 20).map(a => `<tr><td>${esc(a.cp)}</td><td>${esc(L[a.likely] || a.likely)}</td><td class="num">${pct(a.suspicion)}</td><td class="faint">${esc(a.reason)}</td></tr>`).join('')}
       </tbody></table></div>
       ${(o.suggested_requests || []).length ? `<div style="margin-top:10px"><b>מסמכים לבקש:</b><ul style="margin:6px 20px 0">${o.suggested_requests.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''}`;
+  }
+
+  // =====================================================================
+  // Child support: explicit assumptions and side-by-side income scenarios.
+  // =====================================================================
+  const supportNotice = 'הערכה בלבד, לא ייעוץ משפטי. בע״מ 919/15 עוסק בעיקר בילדים בני 6–15 ובחלוקת הנטל לפי יכולות כלכליות וזמני שהות; אין נוסחה משפטית מחייבת. בגיל 15–18 מוצגת המחשה לפי יכולות ההורים. מתחת לגיל 6 החיוב תלוי בדין האישי ובנסיבות, ולא מוסק ממין ההורה. ההמחשה מניחה שההורה החייב נושא בצרכים בסיסיים ובמדור, הוצאות מיוחדות מחולקות לפי הכנסה פנויה, ומקוזזים תשלומים ישירים משוערים לפי שהות. בתי המשפט עשויים לקבוע אחרת. הוצאות קבועות מניחות הורה משלם אחד; התאימו רק את רכיב המדור המיוחס לילד, וחלקו הוצאות משפחתיות בין הילדים כדי לא לספור אותן שוב.';
+  function supportPayment(tr) {
+    return tr.amount < 1 ? 'אין העברה חודשית בתרחיש זה' : `${esc(nm(tr.from))} משלם/ת ל־${esc(nm(tr.to))} ${fmt(tr.amount)} לחודש`;
+  }
+  function supportComparison() {
+    if (!S.kids.length) return '<p class="faint">לא הוזנו ילדים; אין הערכת מזונות.</p>';
+    const real = CS.compute(S, 'real', today()), declared = CS.compute(S, 'declared', today());
+    const source = { bank: 'דפי בנק (דורש אימות)', manual: 'הכנסה נטו בפועל שהוזנה', declaredFallback: 'מדווחת — אין נתוני בפועל', declared: 'מדווחת' };
+    const warnings = [...new Set([...real.warnings, ...declared.warnings])];
+    return `<p class="note">${supportNotice}</p><p class="faint">תאריך ההערכה: ${esc(real.date)}. הסכומים נפרדים מאיזון הרכוש. גיל 6 שייך ל־6–15, גיל 15 ל־15–18, וגיל 18 אינו נכלל.</p>
+      <div class="grid2" style="margin-top:12px">${[real, declared].map(r => `<div class="card"><h3>${r.mode === 'real' ? 'לפי הכנסה בפועל' : 'לפי הכנסה מדווחת'}</h3><p><b>${supportPayment(r.transfer)}</b></p><p class="faint">${r.complete ? '' : 'תוצאה חלקית — ילדים חסרים או בני 18 ומעלה אינם כלולים. '}${r.rows.length} ילדים נכללו.</p><table class="tbl"><thead><tr><th>הורה</th><th>הכנסה</th><th>פנויה</th><th>חלק יחסי</th></tr></thead><tbody>${['A', 'B'].map(w => `<tr><td>${esc(nm(w))}<br><small>${source[r.incomes[w].source]}</small></td><td>${fmt(r.incomes[w].value)}</td><td>${fmt(r.available[w])}</td><td>${pct(r.shares[w])}</td></tr>`).join('')}</tbody></table></div>`).join('')}</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ילד/ה</th><th>גיל / קבוצה</th><th>שהות אצל ${esc(nm('A'))}</th><th>צרכים חודשיים</th><th>לפי בפועל</th><th>לפי מדווחת</th></tr></thead><tbody>${real.rows.map(r => { const d = declared.rows.find(x => x.index === r.index); return `<tr><td>${esc(r.child.name || 'ילד/ה ' + (r.index + 1))}</td><td>${r.age} / ${r.band}</td><td>${pct(r.custodyA)}</td><td>${fmt(r.needs)}<br><small>בסיס ${fmt(r.basic)}, מדור ${fmt(r.housing)}, מיוחדות ${fmt(r.special)}</small></td><td>${supportPayment(r)}</td><td>${d ? supportPayment(d) : 'חסרים נתונים'}</td></tr>`; }).join('')}</tbody></table></div>
+      ${real.excluded.map(r => `<p class="note">${esc(r.child.name || 'ילד/ה ' + (r.index + 1))}: ${esc(r.reason)}</p>`).join('')}
+      ${warnings.map(w => `<p class="faint">${esc(w.replace(/^A:/, nm('A') + ':').replace(/^B:/, nm('B') + ':'))}</p>`).join('')}`;
+  }
+  function renderSupport() {
+    const settings = S.support;
+    const input = (path, label, value, placeholder = '') => `<label class="f">${esc(label)}<input type="number" min="0" step="0.01" data-bind="${path}" value="${value == null ? '' : esc(value)}" placeholder="${esc(placeholder)}"></label>`;
+    const fields = [['daysA', 'ימי/לילות שהות אצל ' + nm('A')], ['daysB', 'ימי/לילות שהות אצל ' + nm('B')], ['basic', 'צרכים בסיסיים לחודש'], ['housing', 'רכיב מדור לחודש לילד/ה'], ['education', 'חינוך לחודש'], ['health', 'בריאות לחודש'], ['activities', 'חוגים לחודש']];
+    return `<h1>ילדים ומזונות</h1><p class="lead">המחשה חודשית לפי צרכים, הכנסה פנויה וזמני שהות. הזינו סכומים נטו והוצאות חודשיות; הוצאה שנתית יש לחלק ב־12.</p>
+      <div class="card"><label class="f">תאריך הערכת המזונות<input type="date" data-bind="support.date" value="${esc(settings.date || today())}"></label><div class="grid2">${['A', 'B'].map(w => `<div><h3>${whoTag(w)}</h3>${input('support.selfExpenses.' + w, 'הוצאות מחיה חיוניות אישיות לחודש (ללא הוצאות הילדים)', settings.selfExpenses[w])}${input('support.realOverride.' + w, 'הכנסה נטו בפועל לחודש — תיקון ידני אופציונלי', settings.realOverride[w], 'ריק = דפי בנק, ובהיעדרם הכנסה מדווחת')}</div>`).join('')}</div><p class="faint">הכנסה פנויה = הכנסה חודשית פחות הוצאות מחיה אישיות, מינימום אפס. ערכי ההכנסה המדווחת נלקחים משלב הכנסות ודפי בנק.</p></div>
+      ${S.kids.map((k, i) => { k.support = k.support || {}; const s = k.support, age = CS.ageOn(k.birth, settings.date || today()); return `<div class="card"><h2>${esc(k.name || 'ילד/ה ' + (i + 1))} · ${age == null ? 'חסר תאריך לידה' : 'גיל ' + age}</h2><div class="grid3">${fields.map(([key, label]) => input(`kids.${i}.support.${key}`, label, s[key])).join('')}</div><p class="faint">ימי/לילות השהות חייבים להתייחס לאותה תקופה, למשל 7 ימים בשבוע או 14 לילות בשבועיים.</p><label class="f">מי משלם בפועל את המדור וההוצאות המיוחדות?<select data-bind="kids.${i}.support.expensePayer"><option value="">בחרו הורה משלם</option>${['A', 'B'].map(w => `<option value="${w}" ${s.expensePayer === w ? 'selected' : ''}>${esc(nm(w))}</option>`).join('')}</select></label>${age != null && age < 6 ? `<label class="f">הורה חייב לצורך המחשה בגיל מתחת ל־6 (לאחר בירור הדין האישי)<select data-bind="kids.${i}.support.under6Payer"><option value="">לא נקבע — אין חישוב לילד/ה</option>${['A', 'B'].map(w => `<option value="${w}" ${s.under6Payer === w ? 'selected' : ''}>${esc(nm(w))}</option>`).join('')}</select></label>` : ''}</div>`; }).join('')}
+      ${!S.kids.length ? '<div class="card"><p>הוסיפו ילדים ותאריכי לידה בשלב פתיחת התיק.</p><button class="btn" data-step="setup">פרטי הילדים</button></div>' : ''}<div class="card"><h2>השוואת תרחישים — הערכה בלבד</h2>${supportComparison()}</div>${nav('bank', 'report')}`;
   }
   async function bankUpload(w, dropped) {
     const files = dropped || await pickFile('.csv,.xls,.xlsx,.txt', true);
@@ -753,7 +788,9 @@
 
       ${['A', 'B'].some(w => S.bank[w].summary) ? `<div class="card"><h2>💼 הכנסה בפועל מול מדווחת</h2><table class="tbl"><thead><tr><th></th><th>תקופה</th><th class="num">בפועל לחודש</th><th class="num">מדווח לחודש</th><th class="num">פער</th></tr></thead><tbody>
         ${['A', 'B'].filter(w => S.bank[w].summary).map(w => { const s = S.bank[w].summary; return `<tr><td>${whoTag(w)}</td><td>${esc(s.from)} – ${esc(s.to)}</td><td class="num">${fmt(s.realMonthly)}</td><td class="num">${fmt(s.declaredMonthly)}</td><td class="num">${fmt(s.gap)}</td></tr>`; }).join('')}
-        </tbody></table><p class="faint" style="margin-top:8px">ישמש בשלב הבא לחישוב מזונות לפי ההכנסה האמיתית.</p></div>` : ''}
+        </tbody></table><p class="faint" style="margin-top:8px">משמש להערכת מזונות; זיכויים אינם בהכרח הכנסה נטו ויש לאמתם.</p></div>` : ''}
+
+      ${S.kids.length ? `<div class="card"><h2>👧 ילדים ומזונות — הערכה חודשית</h2>${supportComparison()}</div>` : ''}
 
       ${findings.length ? `<div class="card"><h2>🔎 ממצאים מדפי הבנק</h2>${findings.map(({ w, f }) => `<div class="fd ${f.severity}"><div class="h">${whoTag(w)}<b>${esc(f.title)}</b><span class="amt">${fmt(f.amount)}</span></div><div class="d">${esc(f.detail)}${f.asAsset ? ' · <b>נכלל בתרחיש עם ממצאים</b>' : ''}</div></div>`).join('')}</div>` : ''}
 
@@ -767,14 +804,14 @@
         <li>RSU ואופציות לפי כלל הזמן: החלק מתקופת ההבשלה שחל בתוך הנישואין ולפני הקרע.</li>
         <li>נכסים מלפני הנישואין, ירושות ומתנות מוחרגים, למעט כוונת שיתוף ספציפית. חובות נכללים רק אם נלקחו לצורכי המשפחה.</li>
         <li>״אחרי מס״ הוא הערכה גסה לפי שיעורים שהוזנו, ולא תחליף לחישוב מס פרטני.</li>
-        <li>לא נלקחו בחשבון: נכסי קריירה ומוניטין אישי, איזון לא שוויוני לפי סעיף 8, ומזונות.</li>
+        <li>לא נלקחו בחשבון באיזון הרכוש: נכסי קריירה ומוניטין אישי ואיזון לא שוויוני לפי סעיף 8. הערכת המזונות מוצגת בנפרד ואינה מקוזזת מסכום האיזון.</li>
       </ul></div>
       <p class="faint">הופק ב־aRKtuar AI ${esc(CFG.version || '')} · ${new Date().toLocaleDateString('he-IL')} · אינו מהווה חוות דעת אקטוארית או ייעוץ משפטי.</p>`;
   }
   function renderReport() {
     return `<div class="row noprint" style="margin-bottom:14px"><h1 style="flex:1">דוח איזון משאבים</h1>
       <button class="btn" data-act="print">🖨️ הדפסה / PDF</button><button class="btn" data-act="dlReport">⬇️ הורדת הדוח (HTML)</button><button class="btn ghost" data-act="export">שמירת קובץ תיק</button></div>
-      <div id="report">${reportHtml()}</div>${nav('bank', null)}`;
+      <div id="report">${reportHtml()}</div>${nav('support', null)}`;
   }
   async function downloadReport() {
     let css = '';
@@ -802,7 +839,8 @@
     const el = e.target;
     if (el.id === 'mapRow' && mapping) { mapping.row = Math.max(-1, Math.min(mapping.rows.length - 1, +el.value - 1)); renderMapping(); return; }
     if (el.dataset.bind) {
-      setPath(el.dataset.bind, el.type === 'number' ? (el.value === '' ? 0 : +el.value) : el.value);
+      setPath(el.dataset.bind, el.type === 'number' ? (el.value === '' ? (/^support\.realOverride\./.test(el.dataset.bind) ? '' : 0) : +el.value) : el.value);
+      if (/^support\.|^kids\./.test(el.dataset.bind)) { renderSoon(); return; }
       if (/^incomes\.|^settings\./.test(el.dataset.bind)) { const w = ui.who.bank; if (S.bank[w].tx.length) runAnalysis(w); renderSoon(); return; }
       if (/^meta\.regime$|\.name$/.test(el.dataset.bind)) { renderSoon(); return; }
       renderRail(); save(); return;

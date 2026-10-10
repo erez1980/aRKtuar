@@ -64,6 +64,7 @@
       bank: { A: { tx: [], findings: [], files: [] }, B: { tx: [], findings: [], files: [] } },
       docs: {},
       kids: [],
+      support: { date: '', selfExpenses: { A: 0, B: 0 }, realOverride: { A: '', B: '' } },
       settings: { largeTx: 10000, lookbackMonths: 12 }
     };
   }
