@@ -4,7 +4,7 @@
 // - Per-user daily quota via arktuar_consume().
 // - CORS restricted to ALLOWED_ORIGINS.
 // - Document content is never logged or stored.
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.117.3";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -12,8 +12,6 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("ARKTUAR_MODEL") ?? "claude-sonnet-5-5";
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://erez1980.github.io")
   .split(",").map((s) => s.trim()).filter(Boolean);
-const OPEN_MODE = Deno.env.get("ARKTUAR_OPEN") === "true"; // allow any signed-in user
-const OPEN_DAILY_LIMIT = Number(Deno.env.get("ARKTUAR_OPEN_LIMIT") ?? "15");
 
 const MAX_FILES = 4;
 const MAX_TOTAL_B64 = 14 * 1024 * 1024; // ~10MB binary
@@ -92,7 +90,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(origin) });
   if (req.method !== "POST") return json({ ok: false, error: "method" }, 405, origin);
   if (origin && !ALLOWED_ORIGINS.includes(origin)) return json({ ok: false, error: "מקור לא מורשה" }, 403, origin);
-  if (!ANTHROPIC_KEY) return json({ ok: false, error: "השרת לא הוגדר (חסר מפתח API)" }, 500, origin);
 
   // ---- Auth ----
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -102,10 +99,12 @@ Deno.serve(async (req) => {
   const email = (u.user.email ?? "").toLowerCase();
 
   // ---- Allowlist ----
-  let limit = OPEN_DAILY_LIMIT;
-  const { data: allow } = await admin.from("arktuar_allowlist").select("daily_limit").eq("email", email).maybeSingle();
-  if (allow) limit = allow.daily_limit;
-  else if (!OPEN_MODE) return json({ ok: false, error: "החשבון שלך עדיין לא מורשה לשימוש ב־AI. פנו למנהל המערכת." }, 403, origin);
+  const { data: allow, error: ae } = await admin.from("arktuar_allowlist").select("daily_limit").eq("email", email).maybeSingle();
+  if (ae) return json({ ok: false, error: "שגיאת בדיקת הרשאות" }, 500, origin);
+  if (!allow) return json({ ok: false, error: "החשבון שלך עדיין לא מורשה לשימוש ב־AI. פנו למנהל המערכת." }, 403, origin);
+  const limit = allow.daily_limit;
+  if (!Number.isInteger(limit) || limit <= 0) return json({ ok: false, error: "המכסה לחשבון זה אינה פעילה" }, 403, origin);
+  if (!ANTHROPIC_KEY) return json({ ok: false, error: "השרת לא הוגדר (חסר מפתח API)" }, 500, origin);
 
   // ---- Payload validation ----
   let body: any;
@@ -144,11 +143,17 @@ Deno.serve(async (req) => {
     content = [{ type: "text", text: JSON.stringify({ declaredMonthly: ctx.declared ?? null, employmentType: ctx.employment ?? null, months: ctx.months ?? null, digest: body.digest }) }];
   }
 
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, max_tokens: task === "extract" ? 16000 : 4000, system, messages: [{ role: "user", content }] }),
-  });
+  let r: Response;
+  try {
+    r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, max_tokens: task === "extract" ? 16000 : 4000, system, messages: [{ role: "user", content }] }),
+      signal: AbortSignal.timeout(90000),
+    });
+  } catch {
+    return json({ ok: false, error: "שירות ה־AI אינו זמין כרגע, נסו שוב" }, 502, origin);
+  }
   if (!r.ok) {
     // Log status only, never the payload
     console.error("anthropic status", r.status);

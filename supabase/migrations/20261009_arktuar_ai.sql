@@ -20,6 +20,7 @@ alter table public.arktuar_allowlist enable row level security;
 alter table public.arktuar_usage     enable row level security;
 revoke all on public.arktuar_allowlist from anon, authenticated;
 revoke all on public.arktuar_usage     from anon, authenticated;
+grant all on public.arktuar_allowlist, public.arktuar_usage to service_role;
 
 -- Atomically consume one call; returns the new count, or -1 when the limit is reached.
 create or replace function public.arktuar_consume(p_user uuid, p_limit int)
@@ -32,6 +33,9 @@ declare
   v_day   date := (now() at time zone 'Asia/Jerusalem')::date;
   v_calls int;
 begin
+  if p_user is null or p_limit is null or p_limit <= 0 then
+    return -1;
+  end if;
   insert into public.arktuar_usage as u (user_id, day, calls)
   values (p_user, v_day, 1)
   on conflict (user_id, day) do update
@@ -43,6 +47,7 @@ end;
 $$;
 
 revoke all on function public.arktuar_consume(uuid, int) from public, anon, authenticated;
+grant execute on function public.arktuar_consume(uuid, int) to service_role;
 
 -- Owner access
 insert into public.arktuar_allowlist (email, daily_limit, note)

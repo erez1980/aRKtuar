@@ -64,6 +64,8 @@ insert into public.arktuar_allowlist (email, daily_limit) values ('someone@gmail
 6. העתיקו publishable key פעיל ל־`supabaseKey` והגדירו `aiEnabled: true` ב־`assets/config.js`; כתובת הפרויקט ו־CSP כבר מצביעים לפרויקט הייעודי. בכל שחרור יש לעדכן `ARK_CONFIG.version`.
 7. בדקו POST ללא התחברות (401), עם JWT של משתמש שאינו מורשה (403), ועם משתמש מורשה וקובץ תלוש PDF לדוגמה (200). אל תכניסו מסמכים אמיתיים או JWT ללוגים או למאגר.
 
+הפרוקסי מחייב רשימת מורשים תמיד; דגל פתיחה ישן אינו עוקף אותה. האימות ובדיקת הרשאות קודמים לבדיקת מפתח Anthropic, כך שבקשות לא מורשות אינן תלויות בהגדרת המפתח. קיים timeout לקריאה ל־Anthropic, ושגיאות רשת מוחזרות בלי תוכן המסמך. בדיקות `tests/ai-proxy.test.js` מדמות 401/403/200, מכסות ושגיאות ללא תלויות; הן אינן מחליפות בדיקת עשן בפרויקט פעיל.
+
 ## סטטוס ניקוי הפרויקט השגוי
 
 ב־10.10.2026 נמחקו רק `public.arktuar_consume(uuid, int)`, `public.arktuar_usage` ו־`public.arktuar_allowlist` מהפרויקט `nsufrchdgyomgbqmvdlr`. בדיקת קטלוג אישרה שאין טבלאות או פונקציות בשם `arktuar*`. הפונקציה בענן `arktuar-ai` עדיין דורשת מחיקה על ידי הבעלים: `supabase functions delete arktuar-ai --project-ref nsufrchdgyomgbqmvdlr`. לאחר המחיקה יש לוודא ברשימת Edge Functions שלא נותרו פונקציות בשם `arktuar*`. אין לשנות שום אובייקט אחר בפרויקט זה.

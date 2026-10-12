@@ -8,5 +8,5 @@ window.ARK_CONFIG = {
   aiEnabled: false,
   aiFunction: 'arktuar-ai',
   maxFileMB: 8,
-  version: 'v1.2.0'
+  version: 'v1.2.1'
 };
